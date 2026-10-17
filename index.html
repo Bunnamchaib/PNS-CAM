@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src https://script.google.com https://script.googleusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vault">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Secure Vault</title>
+<style>
+:root{
+  --bg:#000;--card:#1c1c1e;--card2:#2c2c2e;--sep:#38383a;--txt:#fff;--sub:#8e8e93;
+  --blue:#0a84ff;--red:#ff453a;--green:#30d158;
+  --sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+  font:17px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+canvas{-webkit-touch-callout:none}
+
+/* ---------- Gate ---------- */
+#gate{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+  padding:calc(24px + var(--sat)) 24px calc(24px + var(--sab));overflow:auto}
+.logo{width:76px;height:76px;border-radius:18px;background:linear-gradient(145deg,#1c63d6,var(--blue));
+  display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 8px 30px rgba(10,132,255,.35)}
+.logo svg{width:40px;height:40px;stroke:#fff}
+#gate h1{text-align:center;font-size:30px;margin:0 0 4px;font-weight:700}
+#gate p.sub{text-align:center;color:var(--sub);margin:0 0 28px;font-size:15px}
+.group{background:var(--card);border-radius:14px;overflow:hidden;max-width:480px;width:100%;margin:0 auto}
+.group label{display:block;padding:10px 16px 0;font-size:12px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.group input{display:block;width:100%;background:none;border:0;outline:0;color:var(--txt);
+  font:inherit;padding:4px 16px 12px;-webkit-user-select:text;user-select:text}
+.group .row-sep{height:.5px;background:var(--sep);margin-left:16px}
+.btn{display:block;width:100%;max-width:480px;margin:16px auto 0;height:50px;border-radius:14px;
+  background:var(--blue);font-weight:600;text-align:center;transition:opacity .15s,transform .1s}
+.btn:active{transform:scale(.98);opacity:.85}
+.btn:disabled{opacity:.45}
+.btn.gray{background:var(--card2)}
+#gateMsg{max-width:480px;margin:14px auto 0;text-align:center;font-size:14px;color:var(--red);min-height:20px}
+#gateMsg.info{color:var(--sub)}
+.fine{max-width:480px;margin:22px auto 0;text-align:center;color:var(--sub);font-size:12px}
+
+/* ---------- App shell ---------- */
+#app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:var(--sat)}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px 6px}
+.bar h1{font-size:32px;font-weight:700;margin:0;letter-spacing:-.02em}
+.pill{display:flex;align-items:center;gap:6px;background:var(--card2);padding:8px 14px;border-radius:999px;font-size:15px;color:var(--blue)}
+.pill svg{width:18px;height:18px}
+.tab{flex:1;min-height:0;display:flex;flex-direction:column;padding:8px 16px 12px}
+nav{display:flex;border-top:.5px solid var(--sep);background:rgba(28,28,30,.86);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
+  padding:6px 0 calc(6px + var(--sab))}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--sub);padding:4px 0}
+nav button.on{color:var(--blue)}
+
+/* ---------- Capture ---------- */
+.stage{position:relative;flex:1;min-height:0;background:#0d0d0f;border-radius:22px;overflow:hidden}
+#preview{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#preview.mirror{transform:scaleX(-1)}
+#video{position:absolute;width:1px;height:1px;opacity:.01;pointer-events:none}
+#camMsg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:24px;text-align:center;color:var(--sub);font-size:15px}
+#camMsg .btn{width:auto;padding:0 26px;margin:0}
+.controls{height:104px;display:flex;align-items:center;justify-content:space-around;padding-top:10px}
+.round{width:48px;height:48px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center}
+.round:active{opacity:.7}
+.shutter{width:76px;height:76px;border-radius:50%;border:4px solid #fff;display:flex;align-items:center;justify-content:center}
+.shutter i{display:block;width:60px;height:60px;border-radius:50%;background:#fff;transition:transform .1s}
+.shutter:active i{transform:scale(.88)}
+.shutter:disabled{opacity:.35}
+.controls .btn{margin:0;flex:1;max-width:none}
+.controls .gap{width:12px}
+.spacer48{width:48px;height:48px}
+
+/* ---------- Vault list ---------- */
+.list-head{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 10px;color:var(--sub);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.list-head button{color:var(--blue);display:flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0;font-size:15px}
+.list-head svg{width:18px;height:18px}
+#list{background:var(--card);border-radius:14px;overflow:auto;flex:0 1 auto;max-height:100%}
+.item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;text-align:left;position:relative}
+.item+.item::before{content:"";position:absolute;top:0;left:62px;right:0;height:.5px;background:var(--sep)}
+.item:active{background:var(--card2)}
+.thumb{width:36px;height:36px;border-radius:9px;background:linear-gradient(145deg,#2a2a2e,#1a1a1c);display:flex;align-items:center;justify-content:center;color:var(--blue);flex:none}
+.thumb svg{width:20px;height:20px}
+.meta{flex:1;min-width:0}
+.meta b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta span{display:block;color:var(--sub);font-size:13px}
+.chev{color:#48484a;width:18px;height:18px}
+#listEmpty{color:var(--sub);text-align:center;padding:48px 16px;font-size:15px}
+
+/* ---------- Viewer ---------- */
+#viewer{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;padding-top:var(--sat)}
+.vbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;gap:12px}
+.vbar span{color:var(--sub);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vstage{position:relative;flex:1;min-height:0;margin-bottom:var(--sab)}
+#viewerCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#viewerMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);padding:24px;text-align:center}
+
+/* ---------- Toast ---------- */
+.toast{position:fixed;left:50%;top:calc(10px + var(--sat));transform:translate(-50%,-140%);
+  background:var(--card2);padding:11px 18px;border-radius:14px;font-size:15px;max-width:90%;z-index:99;
+  box-shadow:0 8px 30px rgba(0,0,0,.6);transition:transform .3s cubic-bezier(.2,.9,.3,1.2);text-align:center}
+.toast.show{transform:translate(-50%,0)}
+.toast.ok{color:var(--green)}
+.toast.err{color:var(--red)}
+noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;z-index:200}
+</style>
+</head>
+<body>
+<noscript>JavaScript is required to run Secure Vault.</noscript>
+
+<!-- ================= LOGIN GATE ================= -->
+<section id="gate">
+  <div class="logo"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg></div>
+  <h1>Secure Vault</h1>
+  <p class="sub">Credentials live in memory only and are wiped when you lock.</p>
+  <div class="group">
+    <label for="gateUrl">Script URL</label>
+    <input id="gateUrl" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
+    <div class="row-sep"></div>
+    <label for="gatePass">Password</label>
+    <input id="gatePass" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Required">
+  </div>
+  <button id="gateBtn" class="btn" type="button">Unlock</button>
+  <div id="gateMsg" role="alert"></div>
+  <p class="fine">Photos are encrypted on this device (AES-256-GCM) before they leave it.</p>
+</section>
+
+<!-- ================= APP ================= -->
+<main id="app" hidden>
+  <header class="bar">
+    <h1 id="headerTitle">Capture</h1>
+    <button id="lockBtn" class="pill" type="button" aria-label="Lock">
+      <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Lock
+    </button>
+  </header>
+
+  <!-- Capture tab -->
+  <section id="tabCapture" class="tab">
+    <div class="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="preview" width="2" height="2"></canvas>
+      <div id="camMsg">
+        <div id="camMsgText">Camera is off</div>
+        <button id="camStart" class="btn" type="button">Start Camera</button>
+      </div>
+    </div>
+    <div id="ctrlLive" class="controls">
+      <button id="flipBtn" class="round" type="button" aria-label="Flip camera">
+        <svg viewBox="0 0 24 24"><path d="M20 7H8a4 4 0 00-4 4M4 17h12a4 4 0 004-4M17 4l3 3-3 3M7 14l-3 3 3 3"/></svg>
+      </button>
+      <button id="shutterBtn" class="shutter" type="button" aria-label="Take photo" disabled><i></i></button>
+      <div class="spacer48"></div>
+    </div>
+    <div id="ctrlReview" class="controls" hidden>
+      <button id="retakeBtn" class="btn gray" type="button">Retake</button>
+      <div class="gap"></div>
+      <button id="uploadBtn" class="btn" type="button">Encrypt &amp; Upload</button>
+    </div>
+  </section>
+
+  <!-- Vault tab -->
+  <section id="tabVault" class="tab" hidden>
+    <div class="list-head">
+      <span>Encrypted photos</span>
+      <button id="refreshBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>Refresh</button>
+    </div>
+    <div id="list"></div>
+    <div id="listEmpty" hidden>No photos yet.</div>
+  </section>
+
+  <nav>
+    <button id="navCapture" class="on" type="button">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Capture
+    </button>
+    <button id="navVault" type="button">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>Vault
+    </button>
+  </nav>
+</main>
+
+<!-- ================= VIEWER ================= -->
+<div id="viewer" hidden>
+  <div class="vbar">
+    <button id="viewerClose" class="pill" type="button">Close</button>
+    <span id="viewerTitle"></span>
+  </div>
+  <div class="vstage">
+    <canvas id="viewerCanvas" width="2" height="2"></canvas>
+    <div id="viewerMsg">Decrypting…</div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="code.js"></script>
+</body>
+</html>
