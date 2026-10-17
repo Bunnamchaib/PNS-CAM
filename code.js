@@ -40,16 +40,23 @@
   let swipeStart = null;
   let listRevision = 0;
   let listRequest = 0;
+  let importing = false;
+  let importProgress = '';
+  let pickerEpoch = null;
+  let exportFile = null;
+  let exportId = null;
+  let sharing = false;
+  const downloadUrls = new Map();
 
   // ---------------------------------------------------------------- elements
   const el = {};
   [
     'calculator', 'calcDisplay', 'calcExpression', 'calcClear', 'gate', 'gateCancel', 'gatePass', 'gateBtn', 'gateMsg', 'app', 'headerTitle', 'lockBtn',
     'tabCapture', 'tabVault', 'navCapture', 'navVault', 'preview', 'video', 'camMsg',
-    'camMsgText', 'camStart', 'flipBtn', 'shutterBtn', 'queueStatus', 'queueRetry',
+    'camMsgText', 'camStart', 'flipBtn', 'shutterBtn', 'queueStatus', 'queueRetry', 'importBtn', 'vaultImportBtn', 'importInput',
     'ctrlLive', 'refreshBtn', 'list', 'listEmpty', 'viewer', 'viewerCanvas',
     'viewerClose', 'viewerMsg', 'viewerTitle', 'viewerLoading', 'viewerStage', 'viewerPrev', 'viewerNext', 'viewerCount', 'viewerDelete',
-    'trashDialog', 'trashConfirm', 'trashCancel', 'trashMsg', 'toast'
+    'trashDialog', 'trashConfirm', 'trashCancel', 'trashMsg', 'viewerShare', 'exportDialog', 'shareApps', 'saveImage', 'exportCancel', 'exportHint', 'toast'
   ].forEach((id) => { el[id] = document.getElementById(id); });
   const pctx = el.preview.getContext('2d');
   const uploadQueue = new UploadQueue({
@@ -73,6 +80,7 @@
     fetch: async (item) => (await api('get_file', { id: item.id })).data,
     decode: decryptText, draw: drawToViewer,
     onIndex: (index, total, item) => {
+      clearExport();
       el.viewerTitle.textContent = fmtDate(item.ts);
       el.viewerCount.textContent = (index + 1) + ' / ' + total;
       el.viewerPrev.disabled = index === 0;
@@ -83,6 +91,7 @@
     onLoading: (phase) => {
       el.viewerLoading.hidden = !phase;
       el.viewerDelete.disabled = !!phase || deleting;
+      el.viewerShare.disabled = !!phase || deleting || !exportFile;
       if (phase) { el.viewerMsg.textContent = phase; el.viewerMsg.hidden = false; }
       else el.viewerMsg.hidden = true;
     },
@@ -249,6 +258,8 @@
 
   function lock(reason) {
     sessionEpoch++;
+    pickerEpoch = null;
+    el.importInput.value = '';
     uploadQueue.pause();
     stopCamera(false);
     closeViewer();
@@ -390,7 +401,7 @@
 
   function updateQueueUi() {
     const pending = queueState.pending + unsaved.size;
-    el.queueStatus.textContent = captureError || (unsaved.size ? 'Device storage error · ' + unsaved.size + ' waiting to save' :
+    el.queueStatus.textContent = importProgress || captureError || (unsaved.size ? 'Device storage error · ' + unsaved.size + ' waiting to save' :
       queueState.error ? 'Upload paused · ' + pending + ' saved on this device' :
       state.encoding ? 'Saving ' + state.encoding + ' · ' + pending + ' queued' :
       pending ? (queueState.sending ? 'Uploading · ' : 'Waiting · ') + pending + ' remaining' : 'All photos uploaded');
@@ -434,12 +445,56 @@
       record = { id, createdAt, endpoint: BACKEND_URL, data };
       // Finishing after Lock is safe: the paused queue persists only ciphertext.
       await uploadQueue.enqueue(record);
+      return true;
     } catch (e) {
       if (record) unsaved.set(id, record);
       else captureError = 'Photo was not saved. Please take it again.';
+      return false;
     } finally {
       state.encoding--;
       updateCamUi(); updateQueueUi();
+    }
+  }
+
+  function choosePhotos() {
+    if (!state.pass || importing) return;
+    pickerEpoch = sessionEpoch;
+    el.importInput.click();
+  }
+
+  async function importPhotos() {
+    const files = Array.from(el.importInput.files || []);
+    el.importInput.value = '';
+    const attempt = pickerEpoch;
+    pickerEpoch = null;
+    if (!state.pass || attempt !== sessionEpoch || importing || !files.length) return;
+    const password = state.pass;
+    importing = true;
+    el.importBtn.disabled = el.vaultImportBtn.disabled = true;
+    let added = 0, failed = 0, storageStopped = false;
+    try {
+      for (let index = 0; index < files.length; index++) {
+        if (attempt !== sessionEpoch) break;
+        importProgress = 'Importing ' + (index + 1) + ' / ' + files.length;
+        updateQueueUi();
+        try {
+          const blob = await PhotoIO.imageFileToJpeg(files[index]);
+          if (attempt !== sessionEpoch) break;
+          state.encoding++;
+          updateCamUi();
+          if (await saveCaptured(Promise.resolve(blob), password, crypto.randomUUID(), Date.now())) added++;
+          else { failed++; storageStopped = true; break; }
+        } catch (_) { failed++; }
+      }
+      if (attempt === sessionEpoch) {
+        toast(storageStopped ? 'Import stopped: device storage is unavailable. Use Retry, then select the remaining photos.' :
+          failed ? 'Added ' + added + ' photos. ' + failed + ' could not be imported.' : 'Added ' + added + ' photos', failed ? 'err' : 'ok');
+      }
+    } finally {
+      importing = false;
+      importProgress = '';
+      el.importBtn.disabled = el.vaultImportBtn.disabled = false;
+      updateQueueUi();
     }
   }
 
@@ -500,12 +555,30 @@
       if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) { reject(new Error('File does not contain an image')); return; }
       const img = new Image();
       img.onload = () => {
-        if (valid() && !el.viewer.hidden) {
-          const c = el.viewerCanvas;
-          c.width = img.naturalWidth; c.height = img.naturalHeight;
-          c.getContext('2d').drawImage(img, 0, 0);
-        }
-        img.onload = img.onerror = null; img.src = ''; resolve();
+        try {
+          if (valid() && !el.viewer.hidden) {
+            const c = el.viewerCanvas;
+            c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            const item = photoViewer.current();
+            const name = 'photo-' + new Date(item.ts).toISOString().replace(/[^0-9T]/g, '');
+            if (/^data:image\/jpeg;base64,/i.test(dataUrl)) {
+              exportFile = PhotoIO.fileFromDataUrl(dataUrl, name);
+              exportId = item.id;
+            } else {
+              c.toBlob(blob => {
+                if (blob && valid() && !el.viewer.hidden) {
+                  exportFile = new File([blob], name + '.jpg', { type: 'image/jpeg' });
+                  exportId = item.id;
+                }
+                resolve();
+              }, 'image/jpeg', 0.95);
+              img.onload = img.onerror = null; img.src = ''; return;
+            }
+          }
+          resolve();
+        } catch (error) { reject(error); }
+        finally { img.onload = img.onerror = null; img.src = ''; }
       };
       img.onerror = () => reject(new Error('Image could not be decoded'));
       img.src = dataUrl;
@@ -519,11 +592,68 @@
   }
 
   function closeViewer() {
+    clearExport();
     photoViewer.close(); swipeStart = null;
     el.viewer.hidden = true;
     el.viewerCanvas.width = 2; el.viewerCanvas.height = 2;
     el.viewerCanvas.getContext('2d').clearRect(0, 0, 2, 2);
     el.viewerTitle.textContent = '';
+  }
+
+  function closeExportMenu() {
+    el.exportDialog.close();
+    el.exportDialog.hidden = true;
+  }
+
+  function clearExport() {
+    closeExportMenu();
+    exportFile = null; exportId = null; sharing = false;
+    el.viewerShare.disabled = true;
+    for (const [url, timer] of downloadUrls) {
+      clearTimeout(timer); URL.revokeObjectURL(url);
+    }
+    downloadUrls.clear();
+  }
+
+  function currentExport() {
+    return state.pass && !el.viewer.hidden && exportFile && photoViewer.current()?.id === exportId ? exportFile : null;
+  }
+
+  function openExportMenu() {
+    const file = currentExport();
+    if (!file || sharing) return;
+    el.shareApps.disabled = !PhotoIO.canShareFile(file, navigator);
+    el.exportHint.textContent = el.shareApps.disabled ? 'File sharing is unavailable in this browser. Use Save image, then share from your device.' :
+      'Choose an app in your device’s share menu, or save a JPG. On iPhone, use the system menu to save to Photos.';
+    el.exportDialog.hidden = false; el.exportDialog.showModal();
+  }
+
+  async function shareToApps() {
+    const file = currentExport();
+    if (!file || sharing || !PhotoIO.canShareFile(file, navigator)) return;
+    const attempt = sessionEpoch;
+    sharing = true;
+    closeExportMenu();
+    try {
+      // File was prepared while loading the image: invoke share in this click.
+      await PhotoIO.shareFile(file, navigator);
+    } catch (error) {
+      if (attempt === sessionEpoch && error.name !== 'AbortError') toast('Could not share. Try Save image instead.', 'err');
+    } finally {
+      if (attempt === sessionEpoch) sharing = false;
+    }
+  }
+
+  function saveImage() {
+    const file = currentExport();
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url; link.download = file.name; link.rel = 'noopener';
+    document.body.appendChild(link); link.click(); link.remove();
+    const timer = setTimeout(() => { URL.revokeObjectURL(url); downloadUrls.delete(url); }, 60000);
+    downloadUrls.set(url, timer);
+    closeExportMenu();
   }
 
   function askTrash() {
@@ -592,12 +722,21 @@
   el.navVault.addEventListener('click', () => setTab('vault'));
   el.camStart.addEventListener('click', startCamera);
   el.shutterBtn.addEventListener('click', snapshot);
+  el.importBtn.addEventListener('click', choosePhotos);
+  el.vaultImportBtn.addEventListener('click', choosePhotos);
+  el.importInput.addEventListener('change', importPhotos);
+  el.importInput.addEventListener('cancel', () => { pickerEpoch = null; });
   el.queueRetry.addEventListener('click', retryUnsaved);
   el.refreshBtn.addEventListener('click', () => loadList(false));
   el.viewerClose.addEventListener('click', closeViewer);
   el.viewerPrev.addEventListener('click', () => photoViewer.move(-1));
   el.viewerNext.addEventListener('click', () => photoViewer.move(1));
   el.viewerDelete.addEventListener('click', askTrash);
+  el.viewerShare.addEventListener('click', openExportMenu);
+  el.shareApps.addEventListener('click', shareToApps);
+  el.saveImage.addEventListener('click', saveImage);
+  el.exportCancel.addEventListener('click', closeExportMenu);
+  el.exportDialog.addEventListener('cancel', (e) => { e.preventDefault(); closeExportMenu(); });
   el.trashCancel.addEventListener('click', cancelTrash);
   el.trashConfirm.addEventListener('click', confirmTrash);
   el.trashDialog.addEventListener('cancel', (e) => { e.preventDefault(); cancelTrash(); });
@@ -613,7 +752,7 @@
     if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) photoViewer.move(dx < 0 ? 1 : -1);
   }, { passive: true });
   document.addEventListener('keydown', (e) => {
-    if (el.viewer.hidden || !el.trashDialog.hidden) return;
+    if (el.viewer.hidden || !el.trashDialog.hidden || !el.exportDialog.hidden) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault(); photoViewer.move(e.key === 'ArrowLeft' ? -1 : 1);
     }

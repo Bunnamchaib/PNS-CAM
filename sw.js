@@ -1,6 +1,6 @@
 /* Service worker: caches the static app shell only.
  * Requests to Google (POST / cross-origin) are never intercepted or cached. */
-const CACHE = 'pns-cam-calculator-v4';
+const CACHE = 'pns-cam-calculator-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -8,10 +8,12 @@ const ASSETS = [
   './calculator.js',
   './upload-queue.js',
   './photo-viewer.js',
-  './code.js?v=4',
-  './calculator.js?v=4',
-  './upload-queue.js?v=4',
-  './photo-viewer.js?v=4',
+  './photo-io.js',
+  './code.js?v=5',
+  './calculator.js?v=5',
+  './upload-queue.js?v=5',
+  './photo-viewer.js?v=5',
+  './photo-io.js?v=5',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

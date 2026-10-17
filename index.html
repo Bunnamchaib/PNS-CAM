@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src https://script.google.com https://script.googleusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src https://script.google.com https://script.googleusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
@@ -128,6 +128,15 @@ nav button.on{color:var(--blue)}
 #trashDialog p{color:var(--sub);font-size:15px}
 #trashConfirm{background:var(--red)}
 #trashMsg{color:var(--red);font-size:14px;min-height:20px}
+#importBtn{font-size:14px;gap:5px;padding:10px}
+.list-actions{display:flex;gap:16px;align-items:center}
+.viewer-actions{display:flex;gap:8px;align-items:center}
+#viewerTitle{flex:1;min-width:0}
+#exportDialog{background:var(--card);color:var(--txt);border:1px solid var(--sep);border-radius:22px;width:min(90vw,380px);padding:24px}
+#exportDialog::backdrop{background:rgba(0,0,0,.7)}
+#exportDialog h2{margin:0 0 16px;font-size:22px}
+#exportHint{font-size:14px;color:var(--sub)}
+@media(max-width:420px){.vbar{gap:8px}.vbar #viewerTitle{flex-basis:calc(100% - 90px)}.viewer-actions{margin-left:auto}}
 @media(prefers-reduced-motion:reduce){#viewerLoading::after{animation:none;width:100%;opacity:.7}}
 
 /* ---------- Toast ---------- */
@@ -212,6 +221,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
       <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Lock
     </button>
   </header>
+  <input id="importInput" type="file" accept="image/*" multiple aria-label="Choose photos" hidden>
 
   <!-- Capture tab -->
   <section id="tabCapture" class="tab">
@@ -228,7 +238,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
         <svg viewBox="0 0 24 24"><path d="M20 7H8a4 4 0 00-4 4M4 17h12a4 4 0 004-4M17 4l3 3-3 3M7 14l-3 3 3 3"/></svg>
       </button>
       <button id="shutterBtn" class="shutter" type="button" aria-label="Take photo" disabled><i></i></button>
-      <div class="spacer48"></div>
+      <button id="importBtn" class="pill" type="button" aria-label="Import photos"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>Import</button>
     </div>
     <div class="queue-status" role="status" aria-live="polite">
       <span id="queueStatus">Ready</span>
@@ -240,7 +250,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
   <section id="tabVault" class="tab" hidden>
     <div class="list-head">
       <span>Encrypted photos</span>
-      <button id="refreshBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>Refresh</button>
+      <div class="list-actions"><button id="vaultImportBtn" type="button" aria-label="Import photos">Import</button><button id="refreshBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div>
     </div>
     <div id="list"></div>
     <div id="listEmpty" hidden>No photos yet.</div>
@@ -261,7 +271,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
   <div class="vbar">
     <button id="viewerClose" class="pill" type="button">Close</button>
     <span id="viewerTitle"></span>
-    <button id="viewerDelete" class="pill" type="button">Delete</button>
+    <div class="viewer-actions"><button id="viewerShare" class="pill" type="button" disabled>Share / Save</button><button id="viewerDelete" class="pill" type="button">Delete</button></div>
   </div>
   <div id="viewerLoading" role="progressbar" aria-label="Loading photo" hidden></div>
   <div id="viewerStage" class="vstage">
@@ -284,9 +294,17 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
 </dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="calculator.js?v=4"></script>
-<script src="upload-queue.js?v=4"></script>
-<script src="photo-viewer.js?v=4"></script>
-<script src="code.js?v=4"></script>
+<dialog id="exportDialog" aria-labelledby="exportTitle" hidden>
+  <h2 id="exportTitle">Share / Save</h2>
+  <button id="shareApps" class="btn" type="button">Share to apps</button>
+  <button id="saveImage" class="btn gray" type="button">Save image</button>
+  <p id="exportHint">Choose an app in your device's share menu, or save a JPG. On iPhone, use the system menu to save to Photos.</p>
+  <button id="exportCancel" class="btn gray" type="button">Cancel</button>
+</dialog>
+<script src="calculator.js?v=5"></script>
+<script src="upload-queue.js?v=5"></script>
+<script src="photo-viewer.js?v=5"></script>
+<script src="photo-io.js?v=5"></script>
+<script src="code.js?v=5"></script>
 </body>
 </html>

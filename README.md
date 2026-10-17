@@ -8,6 +8,10 @@ Tap the shutter to keep taking photos while earlier captures upload. Photos are 
 
 ## Viewing and deletion
 
+Use Import in Capture or Vault to select multiple gallery photos. Images are converted to JPEG and enter the same encrypted upload queue; camera permission is not required to import. Unsupported image formats show an import failure while other selected photos continue.
+
+For a loaded photo, Share / Save opens one action menu. Share to apps opens the device share sheet for installed apps. Save image downloads a JPG; on iPhone, use the system sharing menu to save into Photos. Native file sharing availability depends on the device/browser. Cancelling a share does not automatically download the image. Export files are prepared only for the displayed photo and cleared from the app on navigation/close/lock.
+
 Swipe horizontally or use Previous/Next to browse. A loading bar indicates downloading/decrypting. Delete requires confirmation and moves the file to Google Drive trash, where Google applies its 30-day retention. This app never permanently deletes Drive files.
 
 ## Backend updates
