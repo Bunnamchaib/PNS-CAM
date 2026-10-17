@@ -126,13 +126,14 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
 .calc-top{display:flex;align-items:center;gap:10px;color:#99999e;font-size:14px;letter-spacing:.04em}
 .calc-mark{display:grid;place-items:center;width:28px;height:28px;border:1px solid #414145;border-radius:8px;color:#d1d1d6;font-size:18px}
 .calc-screen{flex:1;min-height:100px;display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;padding:24px 8px 28px;overflow:hidden}
-#calcExpression{height:28px;font-size:19px;color:#8e8e93;white-space:nowrap}
+#calcExpression{min-height:34px;font-size:26px;color:#c7c7cc;white-space:nowrap}
 #calcDisplay{display:block;max-width:100%;font-size:clamp(32px,12vw,66px);font-weight:300;letter-spacing:-.04em;line-height:1.15;overflow-wrap:anywhere;text-align:right}
 .calc-keys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .calc-key{height:clamp(48px,11vh,82px);min-height:44px;border-radius:50px;background:#2c2c2e;font-size:29px;display:flex;align-items:center;justify-content:center;transition:background .12s}
 .calc-key:active{background:#626264}
 .calc-key.utility{background:#a5a5a5;color:#000;font-size:25px}
 .calc-key.operator{background:#ff9f0a;color:#fff;font-size:34px}
+.calc-key.operator.selected{background:#fff;color:#c66d00}
 .calc-key.zero{grid-column:span 2;justify-content:flex-start;padding-left:30px}
 .calc-key:focus-visible,.btn:focus-visible{outline:3px solid #fff;outline-offset:3px}
 #gate h1{font-size:24px;margin:0 0 20px}
@@ -250,7 +251,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
 </div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="calculator.js?v=2"></script>
-<script src="code.js?v=2"></script>
+<script src="calculator.js?v=3"></script>
+<script src="code.js?v=3"></script>
 </body>
 </html>

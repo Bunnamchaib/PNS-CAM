@@ -222,6 +222,7 @@
     calculator.reset();
     el.calcDisplay.textContent = '0';
     el.calcExpression.textContent = '';
+    el.calculator.querySelectorAll('.operator').forEach((button) => button.classList.remove('selected'));
     clearTimeout(idleTimer);
     clearTimeout(hiddenTimer);
     gateMessage('');
@@ -232,6 +233,9 @@
     const result = calculator.press(key);
     el.calcDisplay.textContent = result.display;
     el.calcExpression.textContent = result.expression.replace(/\*/g, '×').replace(/\//g, '÷');
+    el.calculator.querySelectorAll('.operator').forEach((button) => {
+      button.classList.toggle('selected', button.dataset.key !== '=' && result.expression.endsWith(' ' + button.dataset.key));
+    });
     if (result.unlock) {
       gateMessage('');
       el.gatePass.value = '';

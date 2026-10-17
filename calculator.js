@@ -67,6 +67,9 @@ class Calculator {
       }
       this.fresh = true;
     }
+    if (this.operator && !this.fresh) {
+      this.expression = `${this.format(this.total)} ${this.operator} ${this.input}`;
+    }
     return this.view(unlock);
   }
 
