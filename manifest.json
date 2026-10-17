@@ -1,7 +1,7 @@
 {
-  "name": "Secure Vault",
-  "short_name": "Vault",
-  "description": "Encrypted camera capture and private photo vault.",
+  "name": "Calculator",
+  "short_name": "Calculator",
+  "description": "A simple everyday calculator.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

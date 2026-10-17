@@ -1,14 +1,18 @@
 /* Service worker: caches the static app shell only.
  * Requests to Google (POST / cross-origin) are never intercepted or cached. */
-const CACHE = 'secure-vault-v1';
+const CACHE = 'calculator-v2';
 const ASSETS = [
   './',
   './index.html',
   './code.js',
+  './calculator.js',
+  './code.js?v=2',
+  './calculator.js?v=2',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './apple-touch-icon.png'
+  './apple-touch-icon.png',
+  './calculator-icon.svg'
 ];
 
 self.addEventListener('install', (event) => {

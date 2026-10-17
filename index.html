@@ -10,12 +10,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Vault">
+<meta name="apple-mobile-web-app-title" content="Calculator">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="icon" type="image/png" href="icon-192.png">
-<title>Secure Vault</title>
+<link rel="icon" type="image/svg+xml" href="calculator-icon.svg">
+<title>Calculator</title>
 <style>
 :root{
   --bg:#000;--card:#1c1c1e;--card2:#2c2c2e;--sep:#38383a;--txt:#fff;--sub:#8e8e93;
@@ -33,8 +33,9 @@ svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 canvas{-webkit-touch-callout:none}
 
 /* ---------- Gate ---------- */
-#gate{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
-  padding:calc(24px + var(--sat)) 24px calc(24px + var(--sab));overflow:auto}
+#gate{border:1px solid var(--sep);color:var(--txt);background:#19191c;border-radius:24px;
+  width:min(90vw,400px);padding:28px 24px;max-height:85dvh;overflow:auto}
+#gate::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(10px)}
 .logo{width:76px;height:76px;border-radius:18px;background:linear-gradient(145deg,#1c63d6,var(--blue));
   display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 8px 30px rgba(10,132,255,.35)}
 .logo svg{width:40px;height:40px;stroke:#fff}
@@ -118,27 +119,70 @@ nav button.on{color:var(--blue)}
 .toast.ok{color:var(--green)}
 .toast.err{color:var(--red)}
 noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;z-index:200}
+
+/* ---------- Calculator ---------- */
+#calculator{height:100%;min-height:100%;padding:calc(24px + var(--sat)) 20px calc(20px + var(--sab));
+  display:flex;flex-direction:column;max-width:440px;margin:auto}
+.calc-top{display:flex;align-items:center;gap:10px;color:#99999e;font-size:14px;letter-spacing:.04em}
+.calc-mark{display:grid;place-items:center;width:28px;height:28px;border:1px solid #414145;border-radius:8px;color:#d1d1d6;font-size:18px}
+.calc-screen{flex:1;min-height:100px;display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;padding:24px 8px 28px;overflow:hidden}
+#calcExpression{height:28px;font-size:19px;color:#8e8e93;white-space:nowrap}
+#calcDisplay{display:block;max-width:100%;font-size:clamp(32px,12vw,66px);font-weight:300;letter-spacing:-.04em;line-height:1.15;overflow-wrap:anywhere;text-align:right}
+.calc-keys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.calc-key{height:clamp(48px,11vh,82px);min-height:44px;border-radius:50px;background:#2c2c2e;font-size:29px;display:flex;align-items:center;justify-content:center;transition:background .12s}
+.calc-key:active{background:#626264}
+.calc-key.utility{background:#a5a5a5;color:#000;font-size:25px}
+.calc-key.operator{background:#ff9f0a;color:#fff;font-size:34px}
+.calc-key.zero{grid-column:span 2;justify-content:flex-start;padding-left:30px}
+.calc-key:focus-visible,.btn:focus-visible{outline:3px solid #fff;outline-offset:3px}
+#gate h1{font-size:24px;margin:0 0 20px}
+#gateCancel{margin-top:10px;color:#b5b5ba}
+@media(max-height:560px){#calculator{padding-top:12px;padding-bottom:12px}.calc-screen{min-height:55px;padding:8px}.calc-key{height:44px;font-size:24px}.calc-keys{gap:7px}.calc-top{font-size:12px}}
 </style>
 </head>
 <body>
-<noscript>JavaScript is required to run Secure Vault.</noscript>
+<noscript>JavaScript is required to run Calculator.</noscript>
+
+<section id="calculator" aria-label="Calculator">
+  <div class="calc-top"><span class="calc-mark" aria-hidden="true">=</span><span>Calculator</span></div>
+  <div class="calc-screen">
+    <div id="calcExpression" aria-hidden="true"></div>
+    <output id="calcDisplay" aria-label="Result" aria-live="polite">0</output>
+  </div>
+  <div class="calc-keys">
+    <button id="calcClear" class="calc-key utility" type="button" data-key="C" aria-label="Clear">AC</button>
+    <button class="calc-key utility" type="button" data-key="sign" aria-label="Change sign">+/−</button>
+    <button class="calc-key utility" type="button" data-key="%" aria-label="Percent">%</button>
+    <button class="calc-key operator" type="button" data-key="/" aria-label="Divide">÷</button>
+    <button class="calc-key" type="button" data-key="7">7</button>
+    <button class="calc-key" type="button" data-key="8">8</button>
+    <button class="calc-key" type="button" data-key="9">9</button>
+    <button class="calc-key operator" type="button" data-key="*" aria-label="Multiply">×</button>
+    <button class="calc-key" type="button" data-key="4">4</button>
+    <button class="calc-key" type="button" data-key="5">5</button>
+    <button class="calc-key" type="button" data-key="6">6</button>
+    <button class="calc-key operator" type="button" data-key="-" aria-label="Subtract">−</button>
+    <button class="calc-key" type="button" data-key="1">1</button>
+    <button class="calc-key" type="button" data-key="2">2</button>
+    <button class="calc-key" type="button" data-key="3">3</button>
+    <button class="calc-key operator" type="button" data-key="+" aria-label="Add">+</button>
+    <button class="calc-key zero" type="button" data-key="0">0</button>
+    <button class="calc-key" type="button" data-key="." aria-label="Decimal point">.</button>
+    <button class="calc-key operator" type="button" data-key="=" aria-label="Equals">=</button>
+  </div>
+</section>
 
 <!-- ================= LOGIN GATE ================= -->
-<section id="gate">
-  <div class="logo"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg></div>
-  <h1>Secure Vault</h1>
-  <p class="sub">Credentials live in memory only and are wiped when you lock.</p>
+<dialog id="gate" aria-labelledby="gateTitle" hidden>
+  <h1 id="gateTitle">Enter password</h1>
   <div class="group">
-    <label for="gateUrl">Script URL</label>
-    <input id="gateUrl" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
-    <div class="row-sep"></div>
     <label for="gatePass">Password</label>
     <input id="gatePass" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Required">
   </div>
   <button id="gateBtn" class="btn" type="button">Unlock</button>
+  <button id="gateCancel" class="btn gray" type="button">Cancel</button>
   <div id="gateMsg" role="alert"></div>
-  <p class="fine">Photos are encrypted on this device (AES-256-GCM) before they leave it.</p>
-</section>
+</dialog>
 
 <!-- ================= APP ================= -->
 <main id="app" hidden>
@@ -206,6 +250,7 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
 </div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="code.js"></script>
+<script src="calculator.js?v=2"></script>
+<script src="code.js?v=2"></script>
 </body>
 </html>

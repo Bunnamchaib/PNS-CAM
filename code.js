@@ -5,7 +5,7 @@
 
 (() => {
   // ------------------------------------------------------------------ config
-  const URL_RE = /^https:\/\/script\.google\.com\/(?:macros\/s\/[A-Za-z0-9_-]+|a\/macros\/[A-Za-z0-9._-]+\/s\/[A-Za-z0-9_-]+)\/exec$/;
+  const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxwz84Oje3AxITzivyD9Q6Co9V8pa4H1rMj_-u2CFVSkrvnwHImFpwnHezmj6DNTcAZ/exec';
   const MAX_EDGE = 1600;            // longest edge of uploaded photo (px)
   const JPEG_QUALITY = 0.85;
   const PBKDF2_ITER = 250000;
@@ -31,11 +31,13 @@
   let idleTimer = 0;
   let hiddenTimer = 0;
   let toastTimer = 0;
+  let sessionEpoch = 0;
+  const calculator = new Calculator();
 
   // ---------------------------------------------------------------- elements
   const el = {};
   [
-    'gate', 'gateUrl', 'gatePass', 'gateBtn', 'gateMsg', 'app', 'headerTitle', 'lockBtn',
+    'calculator', 'calcDisplay', 'calcExpression', 'calcClear', 'gate', 'gateCancel', 'gatePass', 'gateBtn', 'gateMsg', 'app', 'headerTitle', 'lockBtn',
     'tabCapture', 'tabVault', 'navCapture', 'navVault', 'preview', 'video', 'camMsg',
     'camMsgText', 'camStart', 'flipBtn', 'shutterBtn', 'retakeBtn', 'uploadBtn',
     'ctrlLive', 'ctrlReview', 'refreshBtn', 'list', 'listEmpty', 'viewer', 'viewerCanvas',
@@ -158,45 +160,48 @@
 
   async function login() {
     if (state.busy) return;
-    const url = el.gateUrl.value.trim();
     const pass = el.gatePass.value;
-    if (!URL_RE.test(url)) {
-      return gateMessage('Enter a valid Apps Script Web App URL (https://script.google.com/…/exec).');
-    }
     if (!pass) return gateMessage('Enter your password.');
 
+    const attempt = ++sessionEpoch;
     state.busy = true;
     el.gateBtn.disabled = true;
     el.gateBtn.textContent = 'Verifying…';
     gateMessage('');
-    state.url = url;
+    state.url = BACKEND_URL;
     state.pass = pass;
     try {
       const r = await api('fetch_list');
+      if (attempt !== sessionEpoch) return;
       state.items = r.files || [];
-      el.gateUrl.value = '';
       el.gatePass.value = '';
       showApp();
       renderList();
     } catch (e) {
+      if (attempt !== sessionEpoch) return;
       state.url = null;
       state.pass = null;
       gateMessage(friendly(e));
     } finally {
-      state.busy = false;
-      el.gateBtn.disabled = false;
-      el.gateBtn.textContent = 'Unlock';
+      if (attempt === sessionEpoch) {
+        state.busy = false;
+        el.gateBtn.disabled = false;
+        el.gateBtn.textContent = 'Unlock';
+      }
     }
   }
 
   function showApp() {
+    el.gate.close();
     el.gate.hidden = true;
+    el.calculator.hidden = true;
     el.app.hidden = false;
     armIdleTimer();
     setTab('capture');
   }
 
   function lock(reason) {
+    sessionEpoch++;
     stopCamera(false);
     closeViewer();
     wipeCapture();
@@ -206,12 +211,34 @@
     state.busy = false;
     el.list.textContent = '';
     el.app.hidden = true;
-    el.gate.hidden = false;
-    el.gateUrl.value = '';
+    el.gate.close();
+    el.gate.hidden = true;
+    el.calculator.hidden = false;
     el.gatePass.value = '';
+    el.gateBtn.disabled = false;
+    el.gateBtn.textContent = 'Unlock';
+    el.toast.className = 'toast';
+    clearTimeout(toastTimer);
+    calculator.reset();
+    el.calcDisplay.textContent = '0';
+    el.calcExpression.textContent = '';
     clearTimeout(idleTimer);
     clearTimeout(hiddenTimer);
-    gateMessage(reason || '', true);
+    gateMessage('');
+    el.calcClear.focus();
+  }
+
+  function pressCalculator(key) {
+    const result = calculator.press(key);
+    el.calcDisplay.textContent = result.display;
+    el.calcExpression.textContent = result.expression.replace(/\*/g, '×').replace(/\//g, '÷');
+    if (result.unlock) {
+      gateMessage('');
+      el.gatePass.value = '';
+      el.gate.hidden = false;
+      el.gate.showModal();
+      el.gatePass.focus();
+    }
   }
 
   function armIdleTimer() {
@@ -248,6 +275,7 @@
 
   async function startCamera() {
     if (state.stream) return;
+    const attempt = sessionEpoch;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       el.camMsgText.textContent = 'Camera API unavailable. Open this page over HTTPS in Safari.';
       return updateCamUi();
@@ -261,15 +289,17 @@
           height: { ideal: 1080 }
         }
       });
-      if (!state.pass || state.tab !== 'capture' || state.captured) {
+      if (attempt !== sessionEpoch || !state.pass || state.tab !== 'capture' || state.captured) {
         stream.getTracks().forEach((t) => t.stop());   // user left meanwhile
         return;
       }
       state.stream = stream;
       el.video.srcObject = stream;
       await el.video.play();
+      if (attempt !== sessionEpoch) return;
       drawLoop();
     } catch (e) {
+      if (attempt !== sessionEpoch) return;
       state.stream = null;
       const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
       el.camMsgText.textContent = denied
@@ -339,38 +369,44 @@
 
   async function upload() {
     if (!state.captured || state.busy) return;
+    const attempt = sessionEpoch;
     state.busy = true;
     el.uploadBtn.disabled = true;
     el.retakeBtn.disabled = true;
     try {
       el.uploadBtn.textContent = 'Encrypting…';
       const packed = await encryptText(state.captured);
+      if (attempt !== sessionEpoch) return;
       el.uploadBtn.textContent = 'Uploading…';
       await api('upload', { data: packed });
+      if (attempt !== sessionEpoch) return;
       toast('Encrypted and uploaded', 'ok');
       wipeCapture();
       state.busy = false;
       updateCamUi();
       startCamera();
     } catch (e) {
+      if (attempt !== sessionEpoch) return;
       toast(friendly(e), 'err');
       el.uploadBtn.textContent = 'Encrypt & Upload';
       el.uploadBtn.disabled = false;
       el.retakeBtn.disabled = false;
     } finally {
-      state.busy = false;
+      if (attempt === sessionEpoch) state.busy = false;
     }
   }
 
   // ------------------------------------------------------------------- vault
   async function loadList(silent) {
     if (!state.pass) return;
+    const attempt = sessionEpoch;
     try {
       const r = await api('fetch_list');
+      if (attempt !== sessionEpoch) return;
       state.items = r.files || [];
       renderList();
     } catch (e) {
-      if (!silent) toast(friendly(e), 'err');
+      if (attempt === sessionEpoch && !silent) toast(friendly(e), 'err');
     }
   }
 
@@ -410,10 +446,16 @@
     });
   }
 
-  function drawToViewer(dataUrl) {
+  function drawToViewer(dataUrl, attempt) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
+        if (attempt !== sessionEpoch || el.viewer.hidden) {
+          img.onload = img.onerror = null;
+          img.src = '';
+          resolve();
+          return;
+        }
         const c = el.viewerCanvas;
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
@@ -429,6 +471,7 @@
 
   async function openItem(item) {
     if (state.busy) return;
+    const attempt = sessionEpoch;
     state.busy = true;
     el.viewer.hidden = false;
     el.viewerTitle.textContent = fmtDate(item.ts);
@@ -436,16 +479,19 @@
     el.viewerMsg.hidden = false;
     try {
       const r = await api('get_file', { id: item.id });
+      if (attempt !== sessionEpoch) return;
       const dataUrl = await decryptText(r.data);
-      if (el.viewer.hidden) return;                   // closed while loading
+      if (attempt !== sessionEpoch || el.viewer.hidden) return;
       if (dataUrl.indexOf('data:image/') !== 0) throw new Error('File does not contain an image');
-      await drawToViewer(dataUrl);
+      await drawToViewer(dataUrl, attempt);
+      if (attempt !== sessionEpoch || el.viewer.hidden) return;
       el.viewerMsg.hidden = true;
     } catch (e) {
+      if (attempt !== sessionEpoch) return;
       el.viewerMsg.textContent = friendly(e);
       el.viewerMsg.hidden = false;
     } finally {
-      state.busy = false;
+      if (attempt === sessionEpoch) state.busy = false;
     }
   }
 
@@ -459,7 +505,27 @@
 
   // ------------------------------------------------------------------ events
   el.gateBtn.addEventListener('click', login);
-  [el.gateUrl, el.gatePass].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); }));
+  el.gatePass.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+  el.gateCancel.addEventListener('click', () => lock());
+  el.gate.addEventListener('cancel', (e) => { e.preventDefault(); lock(); });
+  el.calculator.addEventListener('click', (e) => {
+    const button = e.target.closest('button[data-key]');
+    if (button) pressCalculator(button.dataset.key);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (el.calculator.hidden || !el.gate.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+    let key = e.key;
+    if (key === 'Escape' || key === 'Delete') key = 'C';
+    if (key === 'Enter') {
+      // Let Enter activate a focused keypad button normally.
+      if (e.target.closest && e.target.closest('button')) return;
+      key = '=';
+    }
+    if (/^[0-9.+*/=\-%]$/.test(key) || key === 'C') {
+      e.preventDefault();
+      pressCalculator(key);
+    }
+  });
   el.lockBtn.addEventListener('click', () => lock('Locked.'));
   el.navCapture.addEventListener('click', () => setTab('capture'));
   el.navVault.addEventListener('click', () => setTab('vault'));
