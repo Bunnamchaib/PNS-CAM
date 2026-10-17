@@ -1,6 +1,6 @@
 /* Secure Vault - client logic.
- * Credentials, photos and decrypted images exist only in RAM.
- * Nothing is written to localStorage / IndexedDB / Photos library. */
+ * Passwords/decrypted images remain in RAM. Only encrypted pending uploads
+ * persist in IndexedDB until server acknowledgement. */
 'use strict';
 
 (() => {
@@ -23,7 +23,7 @@
     stream: null,
     raf: 0,
     facing: 'environment',
-    captured: null,      // JPEG data URL (RAM only)
+    encoding: 0,
     items: [],
     tab: 'capture',
     busy: false
@@ -33,17 +33,61 @@
   let toastTimer = 0;
   let sessionEpoch = 0;
   const calculator = new Calculator();
+  const unsaved = new Map();
+  let queueState = { pending: 0, sending: false, error: null };
+  let captureError = '';
+  let deleting = false;
+  let swipeStart = null;
+  let listRevision = 0;
+  let listRequest = 0;
 
   // ---------------------------------------------------------------- elements
   const el = {};
   [
     'calculator', 'calcDisplay', 'calcExpression', 'calcClear', 'gate', 'gateCancel', 'gatePass', 'gateBtn', 'gateMsg', 'app', 'headerTitle', 'lockBtn',
     'tabCapture', 'tabVault', 'navCapture', 'navVault', 'preview', 'video', 'camMsg',
-    'camMsgText', 'camStart', 'flipBtn', 'shutterBtn', 'retakeBtn', 'uploadBtn',
-    'ctrlLive', 'ctrlReview', 'refreshBtn', 'list', 'listEmpty', 'viewer', 'viewerCanvas',
-    'viewerClose', 'viewerMsg', 'viewerTitle', 'toast'
+    'camMsgText', 'camStart', 'flipBtn', 'shutterBtn', 'queueStatus', 'queueRetry',
+    'ctrlLive', 'refreshBtn', 'list', 'listEmpty', 'viewer', 'viewerCanvas',
+    'viewerClose', 'viewerMsg', 'viewerTitle', 'viewerLoading', 'viewerStage', 'viewerPrev', 'viewerNext', 'viewerCount', 'viewerDelete',
+    'trashDialog', 'trashConfirm', 'trashCancel', 'trashMsg', 'toast'
   ].forEach((id) => { el[id] = document.getElementById(id); });
   const pctx = el.preview.getContext('2d');
+  const uploadQueue = new UploadQueue({
+    store: new IndexedDbQueueStore(), endpoint: BACKEND_URL,
+    send: async (record) => {
+      if (!state.pass) throw new Error('Unlock to resume uploads');
+      const attempt = sessionEpoch;
+      const result = await api('upload', { data: record.data, clientId: record.id, capturedAt: record.createdAt });
+      if (attempt === sessionEpoch && state.pass && !state.items.some(item => item.id === result.id)) {
+        listRevision++;
+        state.items.unshift({ id: result.id, name: result.name, ts: result.ts, size: record.data.length });
+        state.items.sort((a, b) => b.ts - a.ts);
+        renderList();
+      }
+      return result;
+    },
+    onChange: (status) => { queueState = status; updateQueueUi(); }
+  });
+  const photoViewer = new PhotoNavigator({
+    getItems: () => state.items,
+    fetch: async (item) => (await api('get_file', { id: item.id })).data,
+    decode: decryptText, draw: drawToViewer,
+    onIndex: (index, total, item) => {
+      el.viewerTitle.textContent = fmtDate(item.ts);
+      el.viewerCount.textContent = (index + 1) + ' / ' + total;
+      el.viewerPrev.disabled = index === 0;
+      el.viewerNext.disabled = index === total - 1;
+      el.viewerMsg.hidden = true;
+      el.viewerCanvas.width = 2; el.viewerCanvas.height = 2;
+    },
+    onLoading: (phase) => {
+      el.viewerLoading.hidden = !phase;
+      el.viewerDelete.disabled = !!phase || deleting;
+      if (phase) { el.viewerMsg.textContent = phase; el.viewerMsg.hidden = false; }
+      else el.viewerMsg.hidden = true;
+    },
+    onError: (message) => { el.viewerMsg.textContent = message; el.viewerMsg.hidden = false; }
+  });
 
   // ----------------------------------------------------------------- helpers
   function toast(msg, kind) {
@@ -97,10 +141,10 @@
   }
 
   // Output: "v1.<salt>.<iv>.<ciphertext>"  (all Base64)
-  async function encryptText(plain) {
+  async function encryptText(plain, password = state.pass) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const key = await deriveKey(state.pass, salt, 'encrypt');
+    const key = await deriveKey(password, salt, 'encrypt');
     const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plain)));
     return 'v1.' + bytesToB64(salt) + '.' + bytesToB64(iv) + '.' + bytesToB64(ct);
   }
@@ -174,9 +218,12 @@
       const r = await api('fetch_list');
       if (attempt !== sessionEpoch) return;
       state.items = r.files || [];
+      listRevision++;
       el.gatePass.value = '';
       showApp();
       renderList();
+      uploadQueue.start();
+      retryUnsaved();
     } catch (e) {
       if (attempt !== sessionEpoch) return;
       state.url = null;
@@ -202,13 +249,16 @@
 
   function lock(reason) {
     sessionEpoch++;
+    uploadQueue.pause();
     stopCamera(false);
     closeViewer();
-    wipeCapture();
     state.url = null;
     state.pass = null;
     state.items = [];
     state.busy = false;
+    deleting = false;
+    el.trashDialog.close();
+    el.trashDialog.hidden = true;
     el.list.textContent = '';
     el.app.hidden = true;
     el.gate.close();
@@ -260,20 +310,17 @@
     el.navVault.classList.toggle('on', name === 'vault');
     el.headerTitle.textContent = name === 'capture' ? 'Capture' : 'Vault';
     if (name === 'capture') {
-      if (!state.captured) startCamera();
+      startCamera();
     } else {
-      stopCamera(!!state.captured);
+      stopCamera();
       loadList(true);
     }
   }
 
   // ------------------------------------------------------------------ camera
   function updateCamUi() {
-    const reviewing = !!state.captured;
-    el.camMsg.hidden = !!state.stream || reviewing;
-    el.shutterBtn.disabled = !state.stream;
-    el.ctrlLive.hidden = reviewing;
-    el.ctrlReview.hidden = !reviewing;
+    el.camMsg.hidden = !!state.stream;
+    el.shutterBtn.disabled = !state.stream || state.encoding >= 8;
     el.preview.classList.toggle('mirror', state.facing === 'user');
   }
 
@@ -293,7 +340,7 @@
           height: { ideal: 1080 }
         }
       });
-      if (attempt !== sessionEpoch || !state.pass || state.tab !== 'capture' || state.captured) {
+      if (attempt !== sessionEpoch || !state.pass || state.tab !== 'capture') {
         stream.getTracks().forEach((t) => t.stop());   // user left meanwhile
         return;
       }
@@ -326,12 +373,12 @@
     state.raf = requestAnimationFrame(drawLoop);
   }
 
-  function stopCamera(keepFrame) {
+  function stopCamera() {
     cancelAnimationFrame(state.raf);
     if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
     state.stream = null;
     el.video.srcObject = null;
-    if (!keepFrame) clearPreview();
+    clearPreview();
     updateCamUi();
   }
 
@@ -341,62 +388,58 @@
     pctx.clearRect(0, 0, 2, 2);
   }
 
-  function wipeCapture() {
-    state.captured = null;
-    clearPreview();
-    el.uploadBtn.textContent = 'Encrypt & Upload';
-    el.uploadBtn.disabled = false;
-    el.retakeBtn.disabled = false;
+  function updateQueueUi() {
+    const pending = queueState.pending + unsaved.size;
+    el.queueStatus.textContent = captureError || (unsaved.size ? 'Device storage error · ' + unsaved.size + ' waiting to save' :
+      queueState.error ? 'Upload paused · ' + pending + ' saved on this device' :
+      state.encoding ? 'Saving ' + state.encoding + ' · ' + pending + ' queued' :
+      pending ? (queueState.sending ? 'Uploading · ' : 'Waiting · ') + pending + ' remaining' : 'All photos uploaded');
+    el.queueRetry.hidden = !queueState.error && !unsaved.size && !captureError;
+  }
+
+  async function retryUnsaved() {
+    captureError = '';
+    for (const [id, record] of unsaved) {
+      try { await uploadQueue.enqueue(record); unsaved.delete(id); }
+      catch (_) { break; }
+    }
+    uploadQueue.retry();
+    updateQueueUi();
   }
 
   function snapshot() {
     const v = el.video;
-    if (!state.stream || !v.videoWidth) return;
+    if (!state.stream || !v.videoWidth || !state.pass || state.encoding >= 8) return;
+    const password = state.pass;
+    const id = crypto.randomUUID(), createdAt = Date.now();
     const scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
-    const w = Math.round(v.videoWidth * scale);
-    const h = Math.round(v.videoHeight * scale);
     const off = document.createElement('canvas');
-    off.width = w;
-    off.height = h;
-    off.getContext('2d').drawImage(v, 0, 0, w, h);
-    state.captured = off.toDataURL('image/jpeg', JPEG_QUALITY);   // Base64, RAM only
-    off.width = 0;
-    off.height = 0;
-    stopCamera(true);      // freeze the last frame on the preview canvas
+    off.width = Math.round(v.videoWidth * scale);
+    off.height = Math.round(v.videoHeight * scale);
+    off.getContext('2d').drawImage(v, 0, 0, off.width, off.height);
+    state.encoding++;
+    captureError = '';
+    updateCamUi(); updateQueueUi();
+    // Each shutter press owns its frame; no encoding or persistence waits on network.
+    const blob = new Promise((resolve, reject) => off.toBlob(value => value ? resolve(value) : reject(new Error('Could not encode photo')), 'image/jpeg', JPEG_QUALITY));
+    void saveCaptured(blob, password, id, createdAt).finally(() => { off.width = 0; off.height = 0; });
   }
 
-  async function retake() {
-    wipeCapture();
-    updateCamUi();
-    await startCamera();
-  }
-
-  async function upload() {
-    if (!state.captured || state.busy) return;
-    const attempt = sessionEpoch;
-    state.busy = true;
-    el.uploadBtn.disabled = true;
-    el.retakeBtn.disabled = true;
+  async function saveCaptured(blobPromise, password, id, createdAt) {
+    let record;
     try {
-      el.uploadBtn.textContent = 'Encrypting…';
-      const packed = await encryptText(state.captured);
-      if (attempt !== sessionEpoch) return;
-      el.uploadBtn.textContent = 'Uploading…';
-      await api('upload', { data: packed });
-      if (attempt !== sessionEpoch) return;
-      toast('Encrypted and uploaded', 'ok');
-      wipeCapture();
-      state.busy = false;
-      updateCamUi();
-      startCamera();
+      const blob = await blobPromise;
+      const plain = 'data:image/jpeg;base64,' + bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+      const data = await encryptText(plain, password);
+      record = { id, createdAt, endpoint: BACKEND_URL, data };
+      // Finishing after Lock is safe: the paused queue persists only ciphertext.
+      await uploadQueue.enqueue(record);
     } catch (e) {
-      if (attempt !== sessionEpoch) return;
-      toast(friendly(e), 'err');
-      el.uploadBtn.textContent = 'Encrypt & Upload';
-      el.uploadBtn.disabled = false;
-      el.retakeBtn.disabled = false;
+      if (record) unsaved.set(id, record);
+      else captureError = 'Photo was not saved. Please take it again.';
     } finally {
-      if (attempt === sessionEpoch) state.busy = false;
+      state.encoding--;
+      updateCamUi(); updateQueueUi();
     }
   }
 
@@ -404,9 +447,11 @@
   async function loadList(silent) {
     if (!state.pass) return;
     const attempt = sessionEpoch;
+    const revision = listRevision;
+    const request = ++listRequest;
     try {
       const r = await api('fetch_list');
-      if (attempt !== sessionEpoch) return;
+      if (attempt !== sessionEpoch || revision !== listRevision || request !== listRequest) return;
       state.items = r.files || [];
       renderList();
     } catch (e) {
@@ -450,23 +495,17 @@
     });
   }
 
-  function drawToViewer(dataUrl, attempt) {
+  function drawToViewer(dataUrl, valid) {
     return new Promise((resolve, reject) => {
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) { reject(new Error('File does not contain an image')); return; }
       const img = new Image();
       img.onload = () => {
-        if (attempt !== sessionEpoch || el.viewer.hidden) {
-          img.onload = img.onerror = null;
-          img.src = '';
-          resolve();
-          return;
+        if (valid() && !el.viewer.hidden) {
+          const c = el.viewerCanvas;
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          c.getContext('2d').drawImage(img, 0, 0);
         }
-        const c = el.viewerCanvas;
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
-        img.onload = img.onerror = null;
-        img.src = '';
-        resolve();
+        img.onload = img.onerror = null; img.src = ''; resolve();
       };
       img.onerror = () => reject(new Error('Image could not be decoded'));
       img.src = dataUrl;
@@ -474,37 +513,55 @@
   }
 
   async function openItem(item) {
-    if (state.busy) return;
-    const attempt = sessionEpoch;
-    state.busy = true;
+    if (!state.pass || deleting) return;
     el.viewer.hidden = false;
-    el.viewerTitle.textContent = fmtDate(item.ts);
-    el.viewerMsg.textContent = 'Downloading & decrypting…';
-    el.viewerMsg.hidden = false;
-    try {
-      const r = await api('get_file', { id: item.id });
-      if (attempt !== sessionEpoch) return;
-      const dataUrl = await decryptText(r.data);
-      if (attempt !== sessionEpoch || el.viewer.hidden) return;
-      if (dataUrl.indexOf('data:image/') !== 0) throw new Error('File does not contain an image');
-      await drawToViewer(dataUrl, attempt);
-      if (attempt !== sessionEpoch || el.viewer.hidden) return;
-      el.viewerMsg.hidden = true;
-    } catch (e) {
-      if (attempt !== sessionEpoch) return;
-      el.viewerMsg.textContent = friendly(e);
-      el.viewerMsg.hidden = false;
-    } finally {
-      if (attempt === sessionEpoch) state.busy = false;
-    }
+    await photoViewer.open(state.items.findIndex(record => record.id === item.id));
   }
 
   function closeViewer() {
+    photoViewer.close(); swipeStart = null;
     el.viewer.hidden = true;
-    el.viewerCanvas.width = 2;
-    el.viewerCanvas.height = 2;
+    el.viewerCanvas.width = 2; el.viewerCanvas.height = 2;
     el.viewerCanvas.getContext('2d').clearRect(0, 0, 2, 2);
     el.viewerTitle.textContent = '';
+  }
+
+  function askTrash() {
+    if (!photoViewer.current() || deleting) return;
+    el.trashMsg.textContent = '';
+    el.trashConfirm.disabled = false; el.trashCancel.disabled = false;
+    el.trashDialog.hidden = false; el.trashDialog.showModal();
+  }
+
+  function cancelTrash() {
+    if (deleting) return;
+    el.trashDialog.close(); el.trashDialog.hidden = true;
+  }
+
+  async function confirmTrash() {
+    const item = photoViewer.current();
+    if (!item || deleting || !state.pass) return;
+    const attempt = sessionEpoch;
+    const index = state.items.findIndex(record => record.id === item.id);
+    deleting = true;
+    el.trashConfirm.disabled = true; el.trashCancel.disabled = true;
+    el.trashMsg.textContent = 'Moving to trash…';
+    try {
+      await api('trash_file', { id: item.id });
+      if (attempt !== sessionEpoch) return;
+      photoViewer.close();
+      listRevision++;
+      state.items = state.items.filter(record => record.id !== item.id);
+      renderList(); deleting = false; cancelTrash();
+      if (state.items.length) await photoViewer.open(Math.min(index, state.items.length - 1));
+      else closeViewer();
+    } catch (e) {
+      if (attempt === sessionEpoch) el.trashMsg.textContent = friendly(e);
+    } finally {
+      if (attempt === sessionEpoch) {
+        deleting = false; el.trashConfirm.disabled = false; el.trashCancel.disabled = false;
+      }
+    }
   }
 
   // ------------------------------------------------------------------ events
@@ -535,10 +592,33 @@
   el.navVault.addEventListener('click', () => setTab('vault'));
   el.camStart.addEventListener('click', startCamera);
   el.shutterBtn.addEventListener('click', snapshot);
-  el.retakeBtn.addEventListener('click', retake);
-  el.uploadBtn.addEventListener('click', upload);
+  el.queueRetry.addEventListener('click', retryUnsaved);
   el.refreshBtn.addEventListener('click', () => loadList(false));
   el.viewerClose.addEventListener('click', closeViewer);
+  el.viewerPrev.addEventListener('click', () => photoViewer.move(-1));
+  el.viewerNext.addEventListener('click', () => photoViewer.move(1));
+  el.viewerDelete.addEventListener('click', askTrash);
+  el.trashCancel.addEventListener('click', cancelTrash);
+  el.trashConfirm.addEventListener('click', confirmTrash);
+  el.trashDialog.addEventListener('cancel', (e) => { e.preventDefault(); cancelTrash(); });
+  el.viewerStage.addEventListener('touchstart', (e) => {
+    const touch = e.touches[0];
+    swipeStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
+  }, { passive: true });
+  el.viewerStage.addEventListener('touchend', (e) => {
+    const touch = e.changedTouches[0], start = swipeStart;
+    swipeStart = null;
+    if (!touch || !start || deleting) return;
+    const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) photoViewer.move(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (el.viewer.hidden || !el.trashDialog.hidden) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault(); photoViewer.move(e.key === 'ArrowLeft' ? -1 : 1);
+    }
+    if (e.key === 'Escape') closeViewer();
+  });
   el.flipBtn.addEventListener('click', () => {
     state.facing = state.facing === 'environment' ? 'user' : 'environment';
     stopCamera(false);
@@ -561,16 +641,18 @@
     if (!state.pass) return;
     if (document.hidden) {
       closeViewer();
-      stopCamera(!!state.captured);
+      stopCamera();
       clearTimeout(hiddenTimer);
       hiddenTimer = setTimeout(() => lock('Locked after leaving the app.'), HIDDEN_LOCK_MS);
     } else {
       clearTimeout(hiddenTimer);
       armIdleTimer();
-      if (state.tab === 'capture' && !state.captured) startCamera();
+      if (state.tab === 'capture') startCamera();
+      uploadQueue.retry();
     }
   });
   window.addEventListener('pagehide', () => { if (state.pass) lock(); });
+  window.addEventListener('online', () => { if (state.pass) retryUnsaved(); });
 
   // ------------------------------------------------------------ service worker
   if ('serviceWorker' in navigator) {

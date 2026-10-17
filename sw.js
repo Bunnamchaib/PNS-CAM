@@ -1,13 +1,17 @@
 /* Service worker: caches the static app shell only.
  * Requests to Google (POST / cross-origin) are never intercepted or cached. */
-const CACHE = 'calculator-v3';
+const CACHE = 'pns-cam-calculator-v4';
 const ASSETS = [
   './',
   './index.html',
   './code.js',
   './calculator.js',
-  './code.js?v=3',
-  './calculator.js?v=3',
+  './upload-queue.js',
+  './photo-viewer.js',
+  './code.js?v=4',
+  './calculator.js?v=4',
+  './upload-queue.js?v=4',
+  './photo-viewer.js?v=4',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -24,7 +28,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && (/^calculator-v[123]$/.test(k) || k === 'secure-vault-v1' || k.startsWith('pns-cam-'))).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

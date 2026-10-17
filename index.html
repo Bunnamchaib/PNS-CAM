@@ -110,6 +110,25 @@ nav button.on{color:var(--blue)}
 .vstage{position:relative;flex:1;min-height:0;margin-bottom:var(--sab)}
 #viewerCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 #viewerMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);padding:24px;text-align:center}
+.queue-status{min-height:27px;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--sub);font-size:12px}
+.queue-status button{color:var(--blue);padding:4px 8px}
+.vstage{touch-action:pan-y}
+.vbar{flex-wrap:wrap}
+#viewerDelete{color:var(--red)}
+.viewer-nav{display:flex;align-items:center;justify-content:space-between;padding:12px 20px calc(12px + var(--sab));gap:16px}
+.viewer-nav button{background:var(--card2);padding:10px 18px;border-radius:20px;font-size:15px}
+.viewer-nav button:disabled{opacity:.3}
+#viewerCount{color:var(--sub);font-size:13px}
+#viewerLoading{height:3px;overflow:hidden;background:#1c1c1e;flex:none}
+#viewerLoading::after{content:"";display:block;width:40%;height:100%;background:var(--blue);animation:loading-slide 1s ease-in-out infinite}
+@keyframes loading-slide{from{transform:translateX(-100%)}to{transform:translateX(350%)}}
+#trashDialog{background:var(--card);color:var(--txt);border:1px solid var(--sep);border-radius:22px;width:min(90vw,380px);padding:24px}
+#trashDialog::backdrop{background:rgba(0,0,0,.7)}
+#trashDialog h2{margin:0 0 12px;font-size:22px}
+#trashDialog p{color:var(--sub);font-size:15px}
+#trashConfirm{background:var(--red)}
+#trashMsg{color:var(--red);font-size:14px;min-height:20px}
+@media(prefers-reduced-motion:reduce){#viewerLoading::after{animation:none;width:100%;opacity:.7}}
 
 /* ---------- Toast ---------- */
 .toast{position:fixed;left:50%;top:calc(10px + var(--sat));transform:translate(-50%,-140%);
@@ -211,10 +230,9 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
       <button id="shutterBtn" class="shutter" type="button" aria-label="Take photo" disabled><i></i></button>
       <div class="spacer48"></div>
     </div>
-    <div id="ctrlReview" class="controls" hidden>
-      <button id="retakeBtn" class="btn gray" type="button">Retake</button>
-      <div class="gap"></div>
-      <button id="uploadBtn" class="btn" type="button">Encrypt &amp; Upload</button>
+    <div class="queue-status" role="status" aria-live="polite">
+      <span id="queueStatus">Ready</span>
+      <button id="queueRetry" type="button" hidden>Retry</button>
     </div>
   </section>
 
@@ -243,15 +261,32 @@ noscript{position:fixed;inset:0;background:#000;color:#fff;display:flex;align-it
   <div class="vbar">
     <button id="viewerClose" class="pill" type="button">Close</button>
     <span id="viewerTitle"></span>
+    <button id="viewerDelete" class="pill" type="button">Delete</button>
   </div>
-  <div class="vstage">
+  <div id="viewerLoading" role="progressbar" aria-label="Loading photo" hidden></div>
+  <div id="viewerStage" class="vstage">
     <canvas id="viewerCanvas" width="2" height="2"></canvas>
     <div id="viewerMsg">Decrypting…</div>
   </div>
+  <div class="viewer-nav">
+    <button id="viewerPrev" type="button" aria-label="Previous photo">‹ Previous</button>
+    <span id="viewerCount"></span>
+    <button id="viewerNext" type="button" aria-label="Next photo">Next ›</button>
+  </div>
 </div>
 
+<dialog id="trashDialog" aria-labelledby="trashTitle" hidden>
+  <h2 id="trashTitle">Move photo to trash?</h2>
+  <p>The photo will stay in Google Drive trash for 30 days before permanent deletion.</p>
+  <button id="trashConfirm" class="btn" type="button">Move to trash</button>
+  <button id="trashCancel" class="btn gray" type="button">Cancel</button>
+  <div id="trashMsg" role="alert"></div>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="calculator.js?v=3"></script>
-<script src="code.js?v=3"></script>
+<script src="calculator.js?v=4"></script>
+<script src="upload-queue.js?v=4"></script>
+<script src="photo-viewer.js?v=4"></script>
+<script src="code.js?v=4"></script>
 </body>
 </html>
